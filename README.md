@@ -33,8 +33,8 @@ confirms the payment.
 
 ## Running locally on Windows (no Docker)
 
-You need **Node.js 22+** and **PostgreSQL 13+** running locally. Run each part in its own
-PowerShell window.
+You need **Node.js 22+** and **PostgreSQL 13+** running locally. Development and testing were
+done on Windows 11 with Node.js 24 and PostgreSQL 18. Run each part in its own PowerShell window.
 
 ### 1. PostgreSQL
 
@@ -151,9 +151,17 @@ and hit it over HTTP with real concurrency. They cover:
 For safety, the test setup refuses to run unless the database name in `TEST_DATABASE_URL`
 contains `test`.
 
+**Latest results** (PostgreSQL 18, Windows): backend `npm test` passed 27/27 (24 integration +
+3 unit); frontend `npm test` passed 3/3, and `npm run build` passed. See [AI_NOTES.md](AI_NOTES.md) for
+the end-to-end checks run against the live API.
+
 ---
 
 ## Running with Docker Compose (optional)
+
+> **Not yet verified.** The Compose file and both Dockerfiles have not been built or run,
+> because Docker was not available on the development machine. Everything above was tested
+> without Docker.
 
 ```bash
 cp .env.example .env    # then edit the values
