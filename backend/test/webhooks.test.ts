@@ -57,7 +57,7 @@ describe('webhook signature verification', () => {
     const productId = await setStock(ctx.pool, 'CHAI-MASALA', 5);
     const order = await createOrderFor(ctx, [{ productId, quantity: 1 }]);
     // Unusual whitespace and key order: re-serialising would change the bytes and the HMAC.
-    const raw = `{\n  "amountPaise" : ${order.totalPaise},\n  "orderId":"${order.id}",  "eventId":"evt_raw_1"\n}`;
+    const raw = `{\n  "amountPaise" : ${order.totalPaise},\n  "orderId":"${order.id}",  "eventId":"evt_raw_1", "status":"captured"\n}`;
 
     const res = await postWebhook(ctx, raw);
     expect(res.status).toBe(200);
@@ -68,9 +68,29 @@ describe('webhook signature verification', () => {
   });
 
   it('returns 400 for a correctly signed but invalid payload', async () => {
-    const body = JSON.stringify({ eventId: 'evt_x', orderId: 'nope', amountPaise: 10 });
+    const body = JSON.stringify({ eventId: 'evt_x', orderId: 'nope', amountPaise: 10, status: 'captured' });
     expect((await postWebhook(ctx, body)).status).toBe(400);
+    const noStatus = JSON.stringify({ eventId: 'evt_y', orderId: randomUUID(), amountPaise: 10 });
+    expect((await postWebhook(ctx, noStatus)).status).toBe(400);
     expect((await postWebhook(ctx, '{not json')).status).toBe(400);
+    expect(await eventCount()).toBe(0);
+  });
+});
+
+describe('payment status', () => {
+  it('records a non-captured event without paying the order', async () => {
+    const productId = await setStock(ctx.pool, 'CHAI-MASALA', 5);
+    const order = await createOrderFor(ctx, [{ productId, quantity: 1 }]);
+
+    const failed = await postWebhook(ctx, paymentBody(order.id, order.totalPaise, 'evt_failed_1', 'failed'));
+    expect(failed.status).toBe(200);
+    expect(failed.body).toMatchObject({ outcome: 'ignored_not_captured', orderStatus: 'pending_payment' });
+    expect(await availability(ctx.pool, productId)).toMatchObject({ held: 1, available: 4 });
+
+    // A later capture for the same order still works normally.
+    const captured = await postWebhook(ctx, paymentBody(order.id, order.totalPaise, 'evt_captured_1'));
+    expect(captured.body).toMatchObject({ outcome: 'paid', orderStatus: 'paid' });
+    expect(await eventCount()).toBe(2);
   });
 });
 
@@ -82,7 +102,7 @@ describe('payment processing', () => {
     const res = await postWebhook(ctx, paymentBody(order.id, order.totalPaise));
     expect(res.body).toMatchObject({ duplicate: false, outcome: 'paid', orderStatus: 'paid' });
 
-    const fetched = await api(ctx, 'GET', `/api/orders/${order.id}`);
+    const fetched = await api(ctx, 'GET', `/orders/${order.id}`);
     expect(fetched.body.order).toMatchObject({ status: 'paid', expiresInSeconds: null });
 
     // Even past the original deadline, paid stock stays reserved.
@@ -158,7 +178,7 @@ describe('late payments after expiry', () => {
     expect(res.body).toMatchObject({ outcome: 'late_payment_stock_reserved', orderStatus: 'needs_review' });
     expect(await availability(ctx.pool, productId)).toMatchObject({ held: 2, available: 0 });
 
-    const pickup = await api(ctx, 'POST', `/api/orders/${order.id}/pickup`);
+    const pickup = await api(ctx, 'POST', `/orders/${order.id}/pickup-claim`);
     expect(pickup.status).toBe(409);
   });
 

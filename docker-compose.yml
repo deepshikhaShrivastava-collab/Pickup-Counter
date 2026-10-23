@@ -1,13 +1,15 @@
-# Optional one-command startup: docker compose up --build  ->  http://localhost:8080
-# Local development does not need Docker; see README.md.
+# One-command startup:  docker compose up   ->  web http://localhost:8080, API http://localhost:4000
+# Works without a .env file using the dev-only defaults below. Put real values in .env (see
+# .env.example) for anything beyond local testing. Local development does not need Docker.
 services:
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:-pickup}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pickup-dev-only-password}
+      POSTGRES_DB: ${POSTGRES_DB:-pickup}
     ports:
+      # 5433 on the host so it never clashes with a local PostgreSQL on 5432
       - "${DB_HOST_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -20,8 +22,9 @@ services:
   api:
     build: ./backend
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:?set PAYMENT_WEBHOOK_SECRET in .env}
+      DATABASE_URL: postgres://${POSTGRES_USER:-pickup}:${POSTGRES_PASSWORD:-pickup-dev-only-password}@db:5432/${POSTGRES_DB:-pickup}
+      # Dev-only default so the stack starts with one command. Override in .env.
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-dev-only-webhook-secret-change-me}
       PORT: "4000"
       EXPIRY_SWEEP_MS: ${EXPIRY_SWEEP_MS:-5000}
     depends_on:
@@ -30,7 +33,7 @@ services:
     ports:
       - "${API_PORT:-4000}:4000"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
       interval: 5s
       timeout: 3s
       retries: 20

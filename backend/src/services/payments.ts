@@ -8,10 +8,12 @@ export interface PaymentEvent {
   eventId: string;
   orderId: string;
   amountPaise: number;
+  status: string;
 }
 
 export type PaymentOutcome =
   | 'paid'
+  | 'ignored_not_captured'
   | 'amount_mismatch'
   | 'late_payment_stock_reserved'
   | 'late_payment_refund_required'
@@ -61,7 +63,10 @@ export async function processPaymentEvent(
       };
     }
 
-    const outcome = await applyPayment(client, event);
+    // Only a capture moves money. Other statuses (e.g. "failed") are recorded for audit and
+    // idempotency but never change the order or its stock.
+    const outcome: PaymentOutcome =
+      event.status === 'captured' ? await applyPayment(client, event) : 'ignored_not_captured';
     await client.query('UPDATE payment_events SET outcome = $2 WHERE event_id = $1', [
       event.eventId,
       outcome,

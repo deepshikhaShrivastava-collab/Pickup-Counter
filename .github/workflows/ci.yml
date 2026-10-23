@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: Tests (real PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: pickup
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: pickup
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pickup"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgres://pickup:ci-only-password@localhost:5432/pickup_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Backend typecheck and tests
+        working-directory: backend
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+      - name: Frontend build and tests
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          npm test
+
+  docker-compose:
+    name: docker compose up (one command, no .env)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the whole stack
+        run: docker compose up --build --detach --wait --wait-timeout 300
+      - name: Smoke test through the running containers
+        run: |
+          set -euo pipefail
+          curl -fsS http://localhost:4000/health
+          curl -fsS http://localhost:4000/products > products.json
+          test "$(jq '.products | length' products.json)" = 5
+          curl -fsS http://localhost:8080/ | grep -q 'id="root"'
+          curl -fsS http://localhost:8080/api/products > /dev/null
+
+          PID=$(jq '.products[0].id' products.json)
+          ORDER=$(curl -fsS -X POST http://localhost:4000/orders \
+            -H 'content-type: application/json' \
+            -d "{\"items\":[{\"productId\":$PID,\"quantity\":1}]}" | jq -r .order.id)
+          echo "order $ORDER"
+
+          docker compose exec -T api npm run -s send-webhook:dist -- --order "$ORDER"
+          test "$(curl -fsS http://localhost:4000/orders/$ORDER | jq -r .order.status)" = paid
+
+          first=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:4000/orders/$ORDER/pickup-claim)
+          second=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:4000/orders/$ORDER/pickup-claim)
+          echo "pickup-claim: $first then $second"
+          test "$first" = 200 && test "$second" = 409
+      - name: Container logs
+        if: always()
+        run: docker compose logs --no-color
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

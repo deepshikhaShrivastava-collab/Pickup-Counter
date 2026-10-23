@@ -13,7 +13,8 @@
     "db:migrate": "node --env-file-if-exists=../.env --import tsx src/db/cli.ts migrate",
     "db:seed": "node --env-file-if-exists=../.env --import tsx src/db/cli.ts seed",
     "db:setup": "node --env-file-if-exists=../.env --import tsx src/db/cli.ts migrate seed",
-    "webhook": "node --env-file-if-exists=../.env --import tsx src/scripts/send-webhook.ts",
+    "send-webhook": "node --env-file-if-exists=../.env --import tsx src/scripts/send-webhook.ts",
+    "send-webhook:dist": "node dist/scripts/send-webhook.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run --config vitest.unit.config.ts"

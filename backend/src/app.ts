@@ -15,17 +15,25 @@ export function createApp({ pool, webhookSecret }: AppDeps): express.Express {
   const app = express();
   app.disable('x-powered-by');
 
-  app.get('/api/health', async (_req, res) => {
+  // Routes are served at the paths in the brief (/products, /orders, /payments/webhook, ...)
+  // and again under /api, which is what the web app's dev and nginx proxies forward.
+  // (Mounted with two app.use calls: Express 5 does not match '/' inside a path array.)
+  const mount = (router: express.Router) => {
+    app.use('/api', router);
+    app.use(router);
+  };
+
+  app.get(['/health', '/api/health'], async (_req, res) => {
     await pool.query('SELECT 1');
     res.json({ ok: true });
   });
 
   // Raw-body route first, before express.json() can consume the stream.
-  app.use('/api', webhooksRouter(pool, webhookSecret));
+  mount(webhooksRouter(pool, webhookSecret));
 
   app.use(express.json({ limit: '32kb' }));
-  app.use('/api', productsRouter(pool));
-  app.use('/api', ordersRouter(pool));
+  mount(productsRouter(pool));
+  mount(ordersRouter(pool));
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'not_found', message: 'Route not found' });

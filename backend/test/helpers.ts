@@ -78,7 +78,7 @@ export async function postWebhook(
 ): Promise<ApiResponse> {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (signature !== null) headers['x-signature'] = signature;
-  const res = await fetch(`${ctx.baseUrl}/api/webhooks/payment`, {
+  const res = await fetch(`${ctx.baseUrl}/payments/webhook`, {
     method: 'POST',
     headers,
     body: rawBody,
@@ -87,15 +87,20 @@ export async function postWebhook(
   return { status: res.status, body: text ? JSON.parse(text) : null };
 }
 
-export function paymentBody(orderId: string, amountPaise: number, eventId = `evt_${randomUUID()}`) {
-  return JSON.stringify({ eventId, orderId, amountPaise });
+export function paymentBody(
+  orderId: string,
+  amountPaise: number,
+  eventId = `evt_${randomUUID()}`,
+  status = 'captured',
+) {
+  return JSON.stringify({ eventId, orderId, amountPaise, status });
 }
 
 export async function createOrderFor(
   ctx: TestContext,
   items: { productId: number; quantity: number }[],
 ) {
-  const res = await api(ctx, 'POST', '/api/orders', { items });
+  const res = await api(ctx, 'POST', '/orders', { items });
   if (res.status !== 201) throw new Error(`order failed: ${res.status} ${JSON.stringify(res.body)}`);
   return res.body.order as { id: string; totalPaise: number; expiresInSeconds: number; status: string };
 }

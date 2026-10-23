@@ -9,6 +9,8 @@ const paymentEventSchema = z.object({
   eventId: z.string().min(1).max(200),
   orderId: z.string().regex(UUID_RE, 'orderId must be a UUID'),
   amountPaise: z.number().int().positive().max(2_147_483_647),
+  // Only "captured" moves money; any other status is recorded without touching the order.
+  status: z.string().min(1).max(50),
 });
 
 /**
@@ -19,7 +21,7 @@ export function webhooksRouter(pool: pg.Pool, secret: string): Router {
   const router = Router();
 
   router.post(
-    '/webhooks/payment',
+    '/payments/webhook',
     express.raw({ type: () => true, limit: '64kb' }),
     async (req, res) => {
       const rawBody: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);

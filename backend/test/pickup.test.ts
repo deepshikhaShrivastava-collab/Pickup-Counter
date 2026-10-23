@@ -36,7 +36,7 @@ describe('simultaneous pickup claims', () => {
     await payOrder(ctx, order);
 
     const results = await Promise.all(
-      Array.from({ length: 10 }, () => api(ctx, 'POST', `/api/orders/${order.id}/pickup`)),
+      Array.from({ length: 10 }, () => api(ctx, 'POST', `/orders/${order.id}/pickup-claim`)),
     );
 
     const ok = results.filter((r) => r.status === 200);
@@ -56,7 +56,7 @@ describe('simultaneous pickup claims', () => {
     const productId = await setStock(ctx.pool, 'SAMOSA-2', 3);
     const order = await createOrderFor(ctx, [{ productId, quantity: 1 }]);
     await payOrder(ctx, order);
-    expect((await api(ctx, 'POST', `/api/orders/${order.id}/pickup`)).status).toBe(200);
+    expect((await api(ctx, 'POST', `/orders/${order.id}/pickup-claim`)).status).toBe(200);
 
     // Pushing the old deadline back does not resurrect the stock.
     await ctx.pool.query(`UPDATE orders SET expires_at = now() - interval '1 day' WHERE id = $1`, [order.id]);
@@ -69,7 +69,7 @@ describe('pickup rejections', () => {
     const productId = await setStock(ctx.pool, 'CHAI-MASALA', 5);
     const order = await createOrderFor(ctx, [{ productId, quantity: 1 }]);
 
-    const res = await api(ctx, 'POST', `/api/orders/${order.id}/pickup`);
+    const res = await api(ctx, 'POST', `/orders/${order.id}/pickup-claim`);
     expect(res.status).toBe(409);
     expect(res.body.error).toBe('order_not_paid');
     expect((await availability(ctx.pool, productId)).stock_on_hand).toBe(5);
@@ -80,7 +80,7 @@ describe('pickup rejections', () => {
     const order = await createOrderFor(ctx, [{ productId, quantity: 1 }]);
     await forceExpiry(ctx.pool, order.id);
 
-    const res = await api(ctx, 'POST', `/api/orders/${order.id}/pickup`);
+    const res = await api(ctx, 'POST', `/orders/${order.id}/pickup-claim`);
     expect(res.status).toBe(409);
     expect(res.body.error).toBe('order_expired');
     expect(await availability(ctx.pool, productId)).toEqual({ stock_on_hand: 5, held: 0, available: 5 });
@@ -91,12 +91,12 @@ describe('pickup rejections', () => {
     const order = await createOrderFor(ctx, [{ productId, quantity: 1 }]);
     await postWebhook(ctx, paymentBody(order.id, order.totalPaise - 1));
 
-    const res = await api(ctx, 'POST', `/api/orders/${order.id}/pickup`);
+    const res = await api(ctx, 'POST', `/orders/${order.id}/pickup-claim`);
     expect(res.status).toBe(409);
     expect(res.body.error).toBe('order_needs_review');
   });
 
   it('returns 404 for an unknown order', async () => {
-    expect((await api(ctx, 'POST', `/api/orders/${randomUUID()}/pickup`)).status).toBe(404);
+    expect((await api(ctx, 'POST', `/orders/${randomUUID()}/pickup-claim`)).status).toBe(404);
   });
 });

@@ -39,7 +39,7 @@ export function ordersRouter(pool: pg.Pool): Router {
     res.json({ order });
   });
 
-  router.post('/orders/:id/pickup', async (req, res) => {
+  router.post('/orders/:id/pickup-claim', async (req, res) => {
     const id = orderIdParam(req.params.id);
     res.json({ order: await claimPickup(pool, id) });
   });

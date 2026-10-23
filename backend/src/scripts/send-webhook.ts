@@ -1,11 +1,13 @@
 // Sends a signed payment webhook, exactly as a payment provider would.
 //
-//   npm run webhook -- --order <orderId>                 # pays the order's exact total
-//   npm run webhook -- --order <orderId> --amount 100    # wrong amount -> needs_review
-//   npm run webhook -- --order <orderId> --repeat 3      # same eventId 3x -> idempotent
-//   npm run webhook -- --order <orderId> --bad-signature # expect 401
+//   npm run send-webhook -- --order <orderId>                  # pays the order's exact total
+//   npm run send-webhook -- --order <orderId> --amount 100     # wrong amount -> needs_review
+//   npm run send-webhook -- --order <orderId> --repeat 3       # same eventId 3x -> idempotent
+//   npm run send-webhook -- --order <orderId> --status failed  # recorded, order unchanged
+//   npm run send-webhook -- --order <orderId> --bad-signature  # expect 401
 //
 // Reads PAYMENT_WEBHOOK_SECRET from the environment (the npm script loads ../.env).
+// Inside Docker Compose: docker compose exec api npm run send-webhook:dist -- --order <orderId>
 import { randomUUID } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { signPayload } from '../lib/signature.js';
@@ -17,6 +19,7 @@ const { values } = parseArgs({
     event: { type: 'string' },
     url: { type: 'string', default: process.env.API_URL ?? 'http://localhost:4000' },
     repeat: { type: 'string', default: '1' },
+    status: { type: 'string', default: 'captured' },
     'bad-signature': { type: 'boolean', default: false },
   },
 });
@@ -28,7 +31,7 @@ function fail(message: string): never {
 
 const secret = process.env.PAYMENT_WEBHOOK_SECRET;
 if (!secret) fail('PAYMENT_WEBHOOK_SECRET is not set');
-if (!values.order) fail('Usage: send-webhook --order <orderId> [--amount <paise>] [--event <id>] [--repeat <n>] [--bad-signature]');
+if (!values.order) fail('Usage: send-webhook --order <orderId> [--amount <paise>] [--event <id>] [--status <status>] [--repeat <n>] [--bad-signature]');
 
 const baseUrl = values.url!.replace(/\/$/, '');
 const orderId = values.order;
@@ -38,21 +41,26 @@ if (values.amount !== undefined) {
   amountPaise = Number(values.amount);
   if (!Number.isInteger(amountPaise)) fail('--amount must be an integer number of paise');
 } else {
-  const res = await fetch(`${baseUrl}/api/orders/${orderId}`);
+  const res = await fetch(`${baseUrl}/orders/${orderId}`);
   if (!res.ok) fail(`Could not load order ${orderId}: HTTP ${res.status}`);
   const { order } = (await res.json()) as { order: { totalPaise: number } };
   amountPaise = order.totalPaise;
 }
 
-const body = JSON.stringify({ eventId: values.event ?? `evt_${randomUUID()}`, orderId, amountPaise });
+const body = JSON.stringify({
+  eventId: values.event ?? `evt_${randomUUID()}`,
+  orderId,
+  amountPaise,
+  status: values.status,
+});
 const signature = values['bad-signature'] ? '0'.repeat(64) : signPayload(secret, body);
 
-console.log(`POST ${baseUrl}/api/webhooks/payment`);
+console.log(`POST ${baseUrl}/payments/webhook`);
 console.log(`body:        ${body}`);
 console.log(`X-Signature: ${signature}`);
 
 for (let i = 0; i < Number(values.repeat); i++) {
-  const res = await fetch(`${baseUrl}/api/webhooks/payment`, {
+  const res = await fetch(`${baseUrl}/payments/webhook`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-signature': signature },
     body,

@@ -26,8 +26,8 @@ const REVIEW_TEXT: Record<string, string> = {
 export function OrderPage({ orderId }: { orderId: string }) {
   const [order, setOrder] = useState<Order | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-  const syncedAt = useRef(Date.now());
+  const [now, setNow] = useState(() => performance.now());
+  const syncedAt = useRef(performance.now());
   const [claiming, setClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -41,7 +41,7 @@ export function OrderPage({ orderId }: { orderId: string }) {
       try {
         const next = await api.getOrder(orderId);
         if (cancelled) return;
-        syncedAt.current = Date.now();
+        syncedAt.current = performance.now();
         setOrder(next);
         setError(null);
         if (FINAL.includes(next.status)) return;
@@ -62,7 +62,7 @@ export function OrderPage({ orderId }: { orderId: string }) {
   // Local tick between polls for a smooth countdown; the value itself comes from the server.
   useEffect(() => {
     if (order?.status !== 'pending_payment') return;
-    const timer = setInterval(() => setNow(Date.now()), 250);
+    const timer = setInterval(() => setNow(performance.now()), 250);
     return () => clearInterval(timer);
   }, [order?.status]);
 
@@ -73,7 +73,7 @@ export function OrderPage({ orderId }: { orderId: string }) {
   const status = STATUS_TEXT[order.status];
   const secondsLeft =
     order.expiresInSeconds === null ? null : remainingSeconds(order.expiresInSeconds, syncedAt.current, now);
-  const webhookCommand = `cd backend; npm run webhook -- --order ${order.id}`;
+  const webhookCommand = `cd backend; npm run send-webhook -- --order ${order.id}`;
 
   async function claim() {
     setClaiming(true);

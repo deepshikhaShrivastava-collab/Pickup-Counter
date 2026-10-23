@@ -63,5 +63,5 @@ export const api = {
     request<{ order: Order }>('POST', '/api/orders', { items }).then((r) => r.order),
   getOrder: (id: string) => request<{ order: Order }>('GET', `/api/orders/${id}`).then((r) => r.order),
   claimPickup: (id: string) =>
-    request<{ order: Order }>('POST', `/api/orders/${id}/pickup`).then((r) => r.order),
+    request<{ order: Order }>('POST', `/api/orders/${id}/pickup-claim`).then((r) => r.order),
 };

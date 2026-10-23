@@ -28,7 +28,7 @@ describe('concurrent orders for the last two units', () => {
 
     const results = await Promise.all(
       Array.from({ length: 10 }, () =>
-        api(ctx, 'POST', '/api/orders', { items: [{ productId, quantity: 1 }] }),
+        api(ctx, 'POST', '/orders', { items: [{ productId, quantity: 1 }] }),
       ),
     );
 
@@ -49,7 +49,7 @@ describe('concurrent orders for the last two units', () => {
     const productId = await setStock(ctx.pool, 'COFFEE-COLD', 2);
 
     const requests = [2, 1, 1, 1, 1, 1].map((quantity) =>
-      api(ctx, 'POST', '/api/orders', { items: [{ productId, quantity }] }),
+      api(ctx, 'POST', '/orders', { items: [{ productId, quantity }] }),
     );
     const results = await Promise.all(requests);
 
@@ -65,7 +65,7 @@ describe('concurrent orders for the last two units', () => {
     const coffee = await setStock(ctx.pool, 'COFFEE-COLD', 1);
     const chai = await setStock(ctx.pool, 'CHAI-MASALA', 10);
 
-    const res = await api(ctx, 'POST', '/api/orders', {
+    const res = await api(ctx, 'POST', '/orders', {
       items: [
         { productId: chai, quantity: 3 },
         { productId: coffee, quantity: 2 },
@@ -86,11 +86,11 @@ describe('order holds', () => {
     expect(order.totalPaise).toBe(6000);
     expect(order.expiresInSeconds).toBe(120);
 
-    const fetched = await api(ctx, 'GET', `/api/orders/${order.id}`);
+    const fetched = await api(ctx, 'GET', `/orders/${order.id}`);
     expect(fetched.body.order.expiresInSeconds).toBeGreaterThanOrEqual(118);
     expect(fetched.body.order.expiresInSeconds).toBeLessThanOrEqual(120);
 
-    const products = await api(ctx, 'GET', '/api/products');
+    const products = await api(ctx, 'GET', '/products');
     const samosa = products.body.products.find((p: { id: number }) => p.id === productId);
     expect(samosa).toMatchObject({ stockOnHand: 5, available: 3, pricePaise: 3000 });
   });
@@ -104,12 +104,12 @@ describe('order holds', () => {
     // No sweeper has run, yet the stock is already available again.
     expect((await availability(ctx.pool, productId)).available).toBe(2);
 
-    const fetched = await api(ctx, 'GET', `/api/orders/${order.id}`);
+    const fetched = await api(ctx, 'GET', `/orders/${order.id}`);
     expect(fetched.body.order).toMatchObject({ status: 'expired', expiresInSeconds: null });
     const { rows } = await ctx.pool.query('SELECT status FROM holds WHERE order_id = $1', [order.id]);
     expect(rows.map((r) => r.status)).toEqual(['released']);
 
-    const again = await api(ctx, 'POST', '/api/orders', { items: [{ productId, quantity: 2 }] });
+    const again = await api(ctx, 'POST', '/orders', { items: [{ productId, quantity: 2 }] });
     expect(again.status).toBe(201);
   });
 
@@ -131,11 +131,27 @@ describe('order holds', () => {
 
 describe('order validation', () => {
   it('rejects bad payloads and unknown products', async () => {
-    expect((await api(ctx, 'POST', '/api/orders', { items: [] })).status).toBe(400);
-    expect((await api(ctx, 'POST', '/api/orders', { items: [{ productId: 1, quantity: 0 }] })).status).toBe(400);
-    expect((await api(ctx, 'POST', '/api/orders', { items: [{ productId: 1, quantity: 1.5 }] })).status).toBe(400);
-    const unknown = await api(ctx, 'POST', '/api/orders', { items: [{ productId: 999, quantity: 1 }] });
+    expect((await api(ctx, 'POST', '/orders', { items: [] })).status).toBe(400);
+    expect((await api(ctx, 'POST', '/orders', { items: [{ productId: 1, quantity: 0 }] })).status).toBe(400);
+    expect((await api(ctx, 'POST', '/orders', { items: [{ productId: 1, quantity: 1.5 }] })).status).toBe(400);
+    const unknown = await api(ctx, 'POST', '/orders', { items: [{ productId: 999, quantity: 1 }] });
     expect(unknown.status).toBe(404);
-    expect((await api(ctx, 'GET', '/api/orders/not-a-uuid')).status).toBe(404);
+    expect((await api(ctx, 'GET', '/orders/not-a-uuid')).status).toBe(404);
+  });
+});
+
+describe('route paths', () => {
+  it('serves the brief paths and the same routes under /api for the web app', async () => {
+    const plain = await api(ctx, 'GET', '/products');
+    const prefixed = await api(ctx, 'GET', '/api/products');
+    expect(plain.status).toBe(200);
+    expect(plain.body.products).toHaveLength(5);
+    expect(prefixed.body).toEqual(plain.body);
+
+    const productId = plain.body.products[0].id;
+    const created = await api(ctx, 'POST', '/api/orders', { items: [{ productId, quantity: 1 }] });
+    expect(created.status).toBe(201);
+    expect((await api(ctx, 'GET', `/orders/${created.body.order.id}`)).body.order.id).toBe(created.body.order.id);
+    expect((await api(ctx, 'POST', `/api/orders/${created.body.order.id}/pickup-claim`)).status).toBe(409);
   });
 });
