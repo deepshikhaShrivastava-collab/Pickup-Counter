@@ -1,3 +1,5 @@
+# Optional one-command startup: docker compose up --build  ->  http://localhost:8080
+# Local development does not need Docker; see README.md.
 services:
   db:
     image: postgres:17-alpine
@@ -32,6 +34,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+  web:
+    build: ./frontend
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8080}:80"
 
 volumes:
   pgdata:

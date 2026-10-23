@@ -6,7 +6,7 @@ export default async function setup() {
   const url = process.env.TEST_DATABASE_URL;
   if (!url) {
     throw new Error(
-      'TEST_DATABASE_URL is not set. Copy .env.example to .env, then start Postgres: docker compose up -d db',
+      'TEST_DATABASE_URL is not set. Copy .env.example to .env and point it at a running PostgreSQL (see README).',
     );
   }
 
