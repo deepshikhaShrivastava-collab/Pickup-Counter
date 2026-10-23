@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Secrets: only the example file is tracked
+.env
+.env.*
+!.env.example
