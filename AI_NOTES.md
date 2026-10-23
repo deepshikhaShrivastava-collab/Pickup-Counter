@@ -1,77 +1,53 @@
-# AI usage notes
+# AI notes
 
-This project was built with an AI coding assistant (Claude, via Claude Code), working in stages
-with the developer reviewing each stage: inspect and plan → database and backend → tests →
-frontend → verification.
+## Tools and what they were used for
+- **Claude Code (Claude Opus)**, the main tool. It wrote the plan, schema, Express API, signed webhook
+  script, integration and unit tests, React screen, Dockerfiles, Compose file, CI workflow and
+  first drafts of these notes. It also ran the tests and diagnosed issues against the local database.
+- **ChatGPT**, used alongside it for planning and for writing up task handovers between sessions.
+  <!-- Deepshikha: adjust this line to match exactly how you used ChatGPT. -->
 
-## What the AI did
-- Proposed the architecture, schema and concurrency strategy, then wrote the migration, seed,
-  Express API, services, signed webhook script, integration and unit tests, React frontend,
-  Dockerfiles, Compose file, README and these notes.
-- Picked the database-level mechanisms for each correctness requirement: ordered `FOR UPDATE`
-  locks, a single-statement expiry with `SKIP LOCKED`, `ON CONFLICT DO NOTHING` on the event id,
-  and a conditional `UPDATE … WHERE status = 'paid'` for the pickup claim. The README explains
-  each one.
-- Wrote the late-payment policy: record, never auto-revive, `needs_review`, then re-reserve if
-  possible, otherwise refund.
+I reviewed the plan before any code was written, and each stage before the next one started. I ran
+the app myself, including a full manual checkout, and installed PostgreSQL locally.
 
-## How the output was checked
-- **The developer reviewed** the plan before any code was written, and each stage before the next.
-- **The developer installed PostgreSQL 18 locally** (Windows, port 5432) and ran `npm run db:setup`.
-  The developer also did a manual checkout in the browser: all five products, ₹430 total, then
-  the signed webhook script.
+## A prompt that worked well
+> "Work in stages: 1. Inspect the project and provide an implementation plan. 2. Implement the
+> database and backend. 3. Run and fix backend tests. … Do not claim a test passed unless you
+> actually ran it. Keep secrets in environment variables and never commit .env files."
 
-### Automated tests (run by the AI, against the local PostgreSQL 18)
-| Command | Result |
-|---|---|
-| `backend: npx tsc --noEmit` | No errors |
-| `backend: npm test` | **27/27 passed**: 24 integration tests across `orders`, `webhooks` and `pickup` (real PostgreSQL), plus 3 signature unit tests |
-| `frontend: npm run build` (tsc + vite) | Passed |
-| `frontend: npm test` | 3/3 passed (paise formatting, countdown) |
+It worked because the staging forced a reviewable plan first, and the "don't claim it passed"
+rule made every report say exactly what had and hadn't been run. For example, the AI kept
+saying "written but not run against PostgreSQL" until a database was available.
 
-### End-to-end check against the running app
-The AI ran a script against the running backend (`http://localhost:4000`) and the local
-database. Every webhook went through the project's own `send-webhook.ts`, and the database was
-only *read* to confirm results, never edited by hand. **All 17 checks passed:**
-- Order creation stores the total in integer paise, starts as `pending_payment` with a 120 s
-  hold measured by the database clock, creates its holds atomically, and reduces available stock.
-- An invalid signature gets 401 and nothing is recorded.
-- A valid payment within the hold → `paid`. The same event sent again is reported as a duplicate
-  and applied only once.
-- An amount mismatch → `needs_review`.
-- Unpaid and expired orders cannot be collected (409).
-- Of two simultaneous pickup claims, exactly one succeeds and the other gets 409. Shelf stock is
-  permanently deducted.
-- A real 120 s expiry, with no manual time travel, releases the hold and restores availability.
-  A payment arriving after that follows the late-payment policy (`needs_review`, stock re-reserved).
+## Things the AI got wrong, and how I noticed
+1. **It built against my summary of the brief, not the brief itself.** The first version used
+   `/api/webhooks/payment` and `/api/orders/:id/pickup` instead of `/payments/webhook` and
+   `/orders/:id/pickup-claim`. It ignored the webhook's `status` field, so any signed event would
+   have marked an order paid. It named the script `npm run webhook`, and its `docker compose up`
+   refused to start without a `.env`. **Noticed** when I gave it the original brief and asked for
+   a summary of what was done and what was left. It compared the two line by line. All of these
+   were fixed and covered by tests.
+2. **The payment screen stopped polling once an order expired.** In my manual checkout, the
+   webhook returned `late_payment_stock_reserved` while I expected `paid`. Before changing
+   anything, I had the AI query the database. The timestamps showed the webhook arrived 5 minutes
+   after the 120 s hold ended, so the backend was correct. But it exposed that the screen never
+   showed the later move to `needs_review`. Fixed: expired orders keep being polled.
+3. **An Express 5 routing assumption.** `app.use(['/api', '/'], router)` silently matched only
+   `/api`. **Noticed** because every integration test suddenly returned 404 after the route
+   change. A 10-line reproduction confirmed it, and the fix uses two `app.use` calls.
 
-### Issue found during manual testing
-In the developer's first manual checkout, the webhook returned `late_payment_stock_reserved`.
-The database timestamps showed why: the order was created at 10:13:43, its hold expired at
-10:15:43, and the webhook arrived at 10:20:52, about 5 minutes after expiry. So the result was
-**correct per policy, not a backend bug**.
-
-It did expose a small frontend defect: the order page stopped checking for updates once an
-order expired, so it never showed the later move to `needs_review`. The fix keeps checking
-expired orders every 10 s; only `picked_up` is final. That change type-checks and builds, but it
-has not been watched changing over in a browser.
-
-### Still not verified
-- The **Docker Compose** setup (`docker-compose.yml`, both Dockerfiles) has **never been built or
-  run**: Docker is not installed on the development machine.
-- The browser DevTools console and network tabs have not been reviewed by the AI.
-
-## Judgement calls worth reviewing
-- Holds have their own `expires_at`, and availability ignores overdue holds immediately. This
-  trades a little duplication (the order and its holds both store the deadline) for correctness
-  that doesn't depend on the sweeper.
-- On-time amount mismatches keep the stock committed while under review. That protects the
-  customer who paid, but can tie up stock until staff act, and there is no staff tooling yet.
-- Events for unknown orders return `200` (recorded) rather than `4xx`, so providers don't retry forever.
-- The order UUID is the pickup credential in this demo. Real deployments need staff auth and a
-  pickup code.
-
-## Prompts and process
-The developer gave the full requirement list up front and asked for staged delivery, with an
-explicit rule never to claim a test passed unless it had actually been run. The assistant
-reported each verification step with its actual result.
+## How the result was checked
+- **Locally (Windows 11, Node 24, PostgreSQL 18):** backend `tsc` clean; backend `npm test` 29/29
+  (26 integration tests on PostgreSQL + 3 unit); frontend build passing and 3/3 tests.
+- **End to end against the running API:** an AI-written script with 17 checks, all passing: 120 s
+  holds measured by the database clock, availability, invalid signature, payment, duplicate,
+  amount mismatch, unpaid and expired pickups rejected, two simultaneous claims giving 200 and 409,
+  permanent stock deduction, a real expiry, and a late payment. The database was only read to
+  confirm results. This ran before the route rename; the renamed routes are covered by the
+  integration tests and CI.
+- **GitHub Actions on every push:** the same test suites against a PostgreSQL container, plus
+  `docker compose up` from a clean checkout with no `.env`, smoke-tested with products, the web
+  app, an order, a signed webhook, and two pickup claims (200, then 409). Docker isn't installed on
+  the development machine, so CI is the only place the Docker setup has been run.
+- **Secrets:** the local database password and webhook secret were rotated after being pasted into
+  a chat. Git history was scanned for secrets before the repository was made public.
