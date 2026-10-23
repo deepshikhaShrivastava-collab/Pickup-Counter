@@ -4,7 +4,10 @@ import { formatCountdown, remainingSeconds } from '../countdown';
 import { formatPaise } from '../money';
 
 const POLL_MS = 2000;
-const FINAL: OrderStatus[] = ['expired', 'picked_up'];
+// An expired order can still move to needs_review if a late payment arrives, so keep
+// checking it, just less often. Only picked_up is truly final.
+const EXPIRED_POLL_MS = 10_000;
+const FINAL: OrderStatus[] = ['picked_up'];
 
 const STATUS_TEXT: Record<OrderStatus, { title: string; body: string; tone: string }> = {
   pending_payment: { title: 'Waiting for payment', body: 'Your items are reserved until the timer runs out.', tone: 'info' },
@@ -34,6 +37,7 @@ export function OrderPage({ orderId }: { orderId: string }) {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     async function poll() {
+      let delay = POLL_MS;
       try {
         const next = await api.getOrder(orderId);
         if (cancelled) return;
@@ -41,11 +45,12 @@ export function OrderPage({ orderId }: { orderId: string }) {
         setOrder(next);
         setError(null);
         if (FINAL.includes(next.status)) return;
+        if (next.status === 'expired') delay = EXPIRED_POLL_MS;
       } catch (err) {
         if (cancelled) return;
         setError((err as Error).message);
       }
-      timer = setTimeout(poll, POLL_MS);
+      timer = setTimeout(poll, delay);
     }
     poll();
     return () => {
